@@ -1,0 +1,9 @@
+[package]
+name = "sponge-meta-lang"
+version = "0.1.0"
+edition = "2021"
+authors = ["You"]
+description = "SpongeLang compiler with Rust macro + C++ template meta + NASM pipeline"
+license = "MIT"
+
+[dependencies]
