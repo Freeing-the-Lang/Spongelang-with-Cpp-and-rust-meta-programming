@@ -1,0 +1,146 @@
+name: "🔥 SpongeLang Full Build — Rust Macro + C++ Meta + NASM + Release"
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: "🏗️ Universal Build (Rust Macro + C++ Meta + NASM)"
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install NASM (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y nasm
+
+      - name: Install NASM (macOS)
+        if: runner.os == 'macOS'
+        run: brew install nasm
+
+      - name: Install NASM (Windows)
+        if: runner.os == 'Windows'
+        run: choco install nasm -y
+
+      - name: Install Clang (for C++ Template Meta Layer)
+        if: runner.os != 'Windows'
+        run: sudo apt-get update || true && sudo apt-get install -y clang || true
+
+      - name: Cargo build — SpongeLang Compiler
+        run: cargo build --release
+
+      - name: Run SpongeLang → ASM (Rust Macro + C++ Meta 포함)
+        shell: bash
+        run: |
+          mkdir -p build
+          ./target/release/sponge-meta-lang examples/hello.sp > build/out.asm
+          echo "ASM output generated."
+
+      - name: Compile ASM with NASM
+        shell: bash
+        run: |
+          if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
+            nasm -f win64 build/out.asm -o build/out.obj
+          elif [[ "${{ matrix.os }}" == "macos-latest" ]]; then
+            nasm -f macho64 build/out.asm -o build/out.o
+          else
+            nasm -f elf64 build/out.asm -o build/out.o
+          fi
+
+      - name: C++ Template Meta Layer Test Build
+        run: |
+          mkdir -p cpp_meta_test
+          cat << 'EOF' > cpp_meta_test/test.cpp
+#include "../include/sponge_meta.hpp"
+#include "../include/meta_expand.hpp"
+
+int main() {
+    meta_expand<int>(); // dummy compile test
+    return 0;
+}
+EOF
+
+          if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
+            echo "Windows skipping Clang C++ meta test."
+          else
+            clang++ -std=c++20 cpp_meta_test/test.cpp -o cpp_meta_test/meta_test
+            echo "C++ meta template test compiled OK."
+          fi
+
+      - name: Create OS Artifact ZIP
+        run: |
+          mkdir -p artifact
+          cp -r target/release artifact/
+          cp -r build artifact/
+          cp -r include artifact/
+          zip -r ${RUNNER_OS,,}_build.zip artifact/*
+
+      - name: Upload OS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ runner.os }}-build
+          path: ./*.zip
+
+  release:
+    name: "🚀 Auto Release + ProofLedger"
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: releases
+
+      - name: Create SHA256 + ProofLedger
+        run: |
+          echo "SpongeLang Complete Pipeline Release" > ProofLedger.txt
+          echo "Generated: $(date -u)" >> ProofLedger.txt
+          echo "Tag: $GITHUB_REF" >> ProofLedger.txt
+          echo "" >> ProofLedger.txt
+          echo "--- SHA256 Checksums ---" >> ProofLedger.txt
+
+          for f in releases/**/*; do
+            if [[ -f "$f" ]]; then
+              sha256sum "$f" >> ProofLedger.txt
+            fi
+          done
+
+      - name: Bundle everything
+        run: |
+          zip -r full_bundle.zip releases/ ProofLedger.txt
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: "SpongeLang v${{ github.ref_name }} Full Pipeline Release"
+          body: |
+            **Full Pipeline Enabled**
+            - Rust Macro Layer
+            - C++20 Template Meta Layer
+            - NASM Backend
+            - Multi-OS builds
+            - ProofLedger + SHA256
+          files: |
+            full_bundle.zip
+            releases/**/*.zip
+            ProofLedger.txt
