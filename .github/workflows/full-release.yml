@@ -1,4 +1,4 @@
-name: "SpongeLang Full Build - Auto Generate + NASM + C++ Meta + Release (WORKING)"
+name: "SpongeLang Full Build — Rust + NASM + C++ Meta + Release"
 
 on:
   push:
@@ -19,69 +19,15 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
 
     steps:
-
       # ------------------------------------------------------
       # Checkout
       # ------------------------------------------------------
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       # ------------------------------------------------------
-      # Auto-generate source files (Rust + C++ headers)
+      # Install Tools
       # ------------------------------------------------------
-      - name: Generate compiler files
-        shell: bash
-        run: |
-          mkdir -p src/backend include examples
-
-          # Cargo.toml
-          cat << 'EOF' > Cargo.toml
-[package]
-name = "sponge-meta-lang"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-EOF
-
-          # main.rs → 실제 ASM 출력 버전
-          cat << 'EOF' > src/main.rs
-fn main() {
-    // 단순 테스트용 ASM 코드 출력
-    println!("section .text");
-    println!("global _start");
-    println!("_start:");
-    println!("    mov rax, 60");   // exit syscall
-    println!("    xor rdi, rdi");  // exit code 0
-    println!("    syscall");
-}
-EOF
-
-          # 기본 example
-          echo "print(1 + 2)" > examples/hello.sp
-
-          # C++ meta headers
-          cat << 'EOF' > include/sponge_meta.hpp
-#pragma once
-template<typename T>
-struct sponge_meta {
-    static void process() { }
-};
-EOF
-
-          cat << 'EOF' > include/meta_expand.hpp
-#pragma once
-#include "sponge_meta.hpp"
-template<typename T>
-void meta_expand() {
-    sponge_meta<T>::process();
-}
-EOF
-
-      # ------------------------------------------------------
-      # Install Toolchains
-      # ------------------------------------------------------
-
       - name: Install tools (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -101,21 +47,22 @@ EOF
           choco install nasm -y
 
       # ------------------------------------------------------
-      # Build Rust → ASM
+      # Rust Build (compiler)
       # ------------------------------------------------------
-
-      - name: Cargo build
+      - name: Build SpongeLang compiler
         run: cargo build --release
 
+      # ------------------------------------------------------
+      # Generate ASM via SpongeLang
+      # ------------------------------------------------------
       - name: Generate ASM
         run: |
           mkdir -p build
-          ./target/release/sponge-meta-lang > build/out.asm
+          ./target/release/sponge-meta-lang examples/hello.sp > build/out.asm
 
       # ------------------------------------------------------
-      # NASM compile
+      # NASM → OS별 실행 파일 생성
       # ------------------------------------------------------
-
       - name: NASM compile (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -136,10 +83,9 @@ EOF
           link /entry:_start /SUBSYSTEM:CONSOLE build/out.obj /OUT:build\\a.exe
 
       # ------------------------------------------------------
-      # C++ Meta Layer Test
+      # C++ Meta Test
       # ------------------------------------------------------
-
-      - name: C++ meta test (non-Windows)
+      - name: C++ meta test (Linux/macOS)
         if: runner.os != 'Windows'
         run: |
           mkdir -p cpp_test
@@ -160,11 +106,11 @@ EOF
           mkdir cpp_test
           Set-Content -Path cpp_test/test.cpp -Value '#include "../include/sponge_meta.hpp"
 #include "../include/meta_expand.hpp"
-int main() { meta_expand<int>(); return 0; }'
+int main(){ meta_expand<int>(); return 0; }'
           cl /std:c++20 cpp_test/test.cpp /EHsc
 
       # ------------------------------------------------------
-      # Artifact Packing
+      # Artifact Packaging
       # ------------------------------------------------------
       - name: Package Artifact
         run: |
@@ -180,11 +126,12 @@ int main() { meta_expand<int>(); return 0; }'
           name: ${{ runner.os }}-build
           path: ./*.zip
 
+
   # ------------------------------------------------------
-  # Release Job
+  # Release Job (SHA256 Ledger 포함)
   # ------------------------------------------------------
   release:
-    name: "Release + Ledger"
+    name: "Release & ProofLedger"
     runs-on: ubuntu-latest
     needs: build
 
@@ -199,7 +146,7 @@ int main() { meta_expand<int>(); return 0; }'
 
       - name: Generate ProofLedger
         run: |
-          echo "SpongeLang Release" > ProofLedger.txt
+          echo "SpongeLang Auto Release" > ProofLedger.txt
           echo "Generated: $(date -u)" >> ProofLedger.txt
           echo "" >> ProofLedger.txt
           for f in $(find releases -type f); do
@@ -207,20 +154,21 @@ int main() { meta_expand<int>(); return 0; }'
           done
 
       - name: Bundle everything
-        run: zip -r full_bundle.zip releases/ ProofLedger.txt
+        run: |
+          zip -r full_bundle.zip releases/ ProofLedger.txt
 
-      - name: Publish Release
+      - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
           name: "SpongeLang Release — ${{ github.ref_name }}"
           body: |
-            Auto-generated SpongeLang compiler pipeline:
-            - Rust ASM Generator
-            - NASM backend
-            - Multi-OS Runtime Build
-            - C++ Template Meta Layer
-            - SHA256 Ledger Verified
+            SpongeLang Multi-OS Build Pipeline
+            - Rust Compiler (ASM generator)
+            - NASM Backend (Linux/macOS/Windows)
+            - C++ Template Meta Test
+            - Artifact Bundles per OS
+            - SHA256 ProofLedger Included
           files: |
             full_bundle.zip
             releases/**/*.zip
