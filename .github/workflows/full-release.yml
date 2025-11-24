@@ -9,179 +9,229 @@ on:
 permissions:
   contents: write
 
+
 jobs:
   build:
-    name: "🏗️ Auto Generate Compiler + Build (Rust Macro + C++ Meta + NASM)"
+    name: "🏗️ Auto Generate + Compile (Rust Macro + C++ Meta + NASM)"
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
 
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # -----------------------------------------------------------
-      # 🔥 1. 모든 SpongeLang 컴파일러 소스 자동 생성
-      # -----------------------------------------------------------
 
+      #####################################################################
+      # 🔥 1. SpongeLang Compiler 전체 Source 자동 생성
+      #####################################################################
       - name: "Generate SpongeLang Compiler Files"
         shell: bash
         run: |
-          mkdir -p src backend include examples src/backend
+          mkdir -p src/backend include examples
 
+          ###############################################################
           # main.rs
-          echo 'mod tokenizer;' > src/main.rs
-          echo 'mod ast;' >> src/main.rs
-          echo 'mod parser;' >> src/main.rs
-          echo 'mod semantic;' >> src/main.rs
-          echo 'mod backend;' >> src/main.rs
-          echo '' >> src/main.rs
-          echo 'use tokenizer::Tokenizer;' >> src/main.rs
-          echo '' >> src/main.rs
-          echo 'fn main() {' >> src/main.rs
-          echo '    let input = std::fs::read_to_string("examples/hello.sp")' >> src/main.rs
-          echo '        .expect("Failed to read file");' >> src/main.rs
-          echo '' >> src/main.rs
-          echo '    let tokens = Tokenizer::new(&input).tokenize();' >> src/main.rs
-          echo '    println!("Tokens: {:?}", tokens);' >> src/main.rs
-          echo '}' >> src/main.rs
+          ###############################################################
+          cat << 'EOF' > src/main.rs
+mod tokenizer;
+mod ast;
+mod parser;
+mod semantic;
+mod backend;
 
+use tokenizer::Tokenizer;
+
+fn main() {
+    let input = std::fs::read_to_string("examples/hello.sp")
+        .expect("Failed to read file");
+
+    let tokens = Tokenizer::new(&input).tokenize();
+    println!("Tokens: {:?}", tokens);
+}
+EOF
+
+          ###############################################################
           # tokenizer.rs
-          echo '#[derive(Debug, Clone)]' > src/tokenizer.rs
-          echo 'pub enum Token {' >> src/tokenizer.rs
-          echo '    Ident(String),' >> src/tokenizer.rs
-          echo '    Number(String),' >> src/tokenizer.rs
-          echo '    LParen,' >> src/tokenizer.rs
-          echo '    RParen,' >> src/tokenizer.rs
-          echo '    Plus,' >> src/tokenizer.rs
-          echo '    Minus,' >> src/tokenizer.rs
-          echo '    EOF,' >> src/tokenizer.rs
-          echo '}' >> src/tokenizer.rs
-          echo '' >> src/tokenizer.rs
-          echo 'pub struct Tokenizer<'"'"'a> {' >> src/tokenizer.rs
-          echo '    src: &'"'"'a str,' >> src/tokenizer.rs
-          echo '    pos: usize,' >> src/tokenizer.rs
-          echo '}' >> src/tokenizer.rs
-          echo '' >> src/tokenizer.rs
-          echo 'impl<'"'"'a> Tokenizer<'"'"'a> {' >> src/tokenizer.rs
-          echo '    pub fn new(src: &'"'"'a str) -> Self {' >> src/tokenizer.rs
-          echo '        Self { src, pos: 0 }' >> src/tokenizer.rs
-          echo '    }' >> src/tokenizer.rs
-          echo '' >> src/tokenizer.rs
-          echo '    pub fn tokenize(&mut self) -> Vec<Token> {' >> src/tokenizer.rs
-          echo '        let mut out = vec![];' >> src/tokenizer.rs
-          echo '        while let Some(ch) = self.src.chars().nth(self.pos) {' >> src/tokenizer.rs
-          echo '            self.pos += 1;' >> src/tokenizer.rs
-          echo '            match ch {' >> src/tokenizer.rs
-          echo '                '('')'') => out.push(Token::LParen),' >> src/tokenizer.rs
-          echo '                '('')'') => out.push(Token::RParen),' >> src/tokenizer.rs
-          echo '                '+' => out.push(Token::Plus),' >> src/tokenizer.rs
-          echo '                '-' => out.push(Token::Minus),' >> src/tokenizer.rs
-          echo '                c if c.is_ascii_digit() => out.push(Token::Number(c.to_string())),' >> src/tokenizer.rs
-          echo '                c if c.is_ascii_alphabetic() => out.push(Token::Ident(c.to_string())),' >> src/tokenizer.rs
-          echo '                c if c.is_whitespace() => {},' >> src/tokenizer.rs
-          echo '                _ => {}' >> src/tokenizer.rs
-          echo '            }' >> src/tokenizer.rs
-          echo '        }' >> src/tokenizer.rs
-          echo '        out.push(Token::EOF);' >> src/tokenizer.rs
-          echo '        out' >> src/tokenizer.rs
-          echo '    }' >> src/tokenizer.rs
-          echo '}' >> src/tokenizer.rs
+          ###############################################################
+          cat << 'EOF' > src/tokenizer.rs
+#[derive(Debug, Clone)]
+pub enum Token {
+    Ident(String),
+    Number(String),
+    LParen,
+    RParen,
+    Plus,
+    Minus,
+    EOF,
+}
 
+pub struct Tokenizer<'a> {
+    src: &'a str,
+    pos: usize,
+}
+
+impl<'a> Tokenizer<'a> {
+    pub fn new(src: &'a str) -> Self {
+        Self { src, pos: 0 }
+    }
+
+    pub fn tokenize(&mut self) -> Vec<Token> {
+        let mut out = vec![];
+        while let Some(ch) = self.src.chars().nth(self.pos) {
+            self.pos += 1;
+            match ch {
+                '(' => out.push(Token::LParen),
+                ')' => out.push(Token::RParen),
+                '+' => out.push(Token::Plus),
+                '-' => out.push(Token::Minus),
+                c if c.is_ascii_digit() => out.push(Token::Number(c.to_string())),
+                c if c.is_ascii_alphabetic() => out.push(Token::Ident(c.to_string())),
+                c if c.is_whitespace() => {},
+                _ => {}
+            }
+        }
+        out.push(Token::EOF);
+        out
+    }
+}
+EOF
+
+          ###############################################################
           # ast.rs
-          echo '#[derive(Debug)]' > src/ast.rs
-          echo 'pub enum Expr {' >> src/ast.rs
-          echo '    Number(i64),' >> src/ast.rs
-          echo '    Ident(String),' >> src/ast.rs
-          echo '    Binary {' >> src/ast.rs
-          echo '        left: Box<Expr>,' >> src/ast.rs
-          echo '        op: String,' >> src/ast.rs
-          echo '        right: Box<Expr>,' >> src/ast.rs
-          echo '    },' >> src/ast.rs
-          echo '}' >> src/ast.rs
+          ###############################################################
+          cat << 'EOF' > src/ast.rs
+#[derive(Debug)]
+pub enum Expr {
+    Number(i64),
+    Ident(String),
+    Binary {
+        left: Box<Expr>,
+        op: String,
+        right: Box<Expr>,
+    },
+}
+EOF
 
+          ###############################################################
           # parser.rs
-          echo 'use crate::tokenizer::Token;' > src/parser.rs
-          echo '' >> src/parser.rs
-          echo 'pub struct Parser {' >> src/parser.rs
-          echo '    tokens: Vec<Token>,' >> src/parser.rs
-          echo '    pos: usize,' >> src/parser.rs
-          echo '}' >> src/parser.rs
-          echo '' >> src/parser.rs
-          echo 'impl Parser {' >> src/parser.rs
-          echo '    pub fn new(tokens: Vec<Token>) -> Self {' >> src/parser.rs
-          echo '        Self { tokens, pos: 0 }' >> src/parser.rs
-          echo '    }' >> src/parser.rs
-          echo '' >> src/parser.rs
-          echo '    fn current(&self) -> &Token {' >> src/parser.rs
-          echo '        &self.tokens[self.pos]' >> src/parser.rs
-          echo '    }' >> src/parser.rs
-          echo '}' >> src/parser.rs
+          ###############################################################
+          cat << 'EOF' > src/parser.rs
+use crate::tokenizer::Token;
 
+pub struct Parser {
+    tokens: Vec<Token>,
+    pos: usize,
+}
+
+impl Parser {
+    pub fn new(tokens: Vec<Token>) -> Self {
+        Self { tokens, pos: 0 }
+    }
+
+    fn current(&self) -> &Token {
+        &self.tokens[self.pos]
+    }
+}
+EOF
+
+          ###############################################################
           # semantic.rs
-          echo 'pub struct SemanticAnalyzer;' > src/semantic.rs
-          echo '' >> src/semantic.rs
-          echo 'impl SemanticAnalyzer {' >> src/semantic.rs
-          echo '    pub fn analyze() {' >> src/semantic.rs
-          echo '        // TODO: meaning-based layer' >> src/semantic.rs
-          echo '    }' >> src/semantic.rs
-          echo '}' >> src/semantic.rs
+          ###############################################################
+          cat << 'EOF' > src/semantic.rs
+pub struct SemanticAnalyzer;
 
+impl SemanticAnalyzer {
+    pub fn analyze() {
+        // TODO: type system, meaning layer
+    }
+}
+EOF
+
+          ###############################################################
           # backend/mod.rs
-          echo 'pub mod cpp_codegen;' > src/backend/mod.rs
-          echo 'pub mod rust_macro_bridge;' >> src/backend/mod.rs
+          ###############################################################
+          cat << 'EOF' > src/backend/mod.rs
+pub mod cpp_codegen;
+pub mod rust_macro_bridge;
+EOF
 
+          ###############################################################
           # backend/cpp_codegen.rs
-          echo 'pub struct CppCodegen;' > src/backend/cpp_codegen.rs
-          echo 'impl CppCodegen {' >> src/backend/cpp_codegen.rs
-          echo '    pub fn emit() {' >> src/backend/cpp_codegen.rs
-          echo '        // TODO: AST → C++ meta template output' >> src/backend/cpp_codegen.rs
-          echo '    }' >> src/backend/cpp_codegen.rs
-          echo '}' >> src/backend/cpp_codegen.rs
+          ###############################################################
+          cat << 'EOF' > src/backend/cpp_codegen.rs
+pub struct CppCodegen;
 
+impl CppCodegen {
+    pub fn emit() {
+        // TODO: AST → C++ template meta code
+    }
+}
+EOF
+
+          ###############################################################
           # backend/rust_macro_bridge.rs
-          echo 'use crate::ast::Expr;' > src/backend/rust_macro_bridge.rs
-          echo '' >> src/backend/rust_macro_bridge.rs
-          echo 'pub struct RustMacroBridge;' >> src/backend/rust_macro_bridge.rs
-          echo '' >> src/backend/rust_macro_bridge.rs
-          echo 'impl RustMacroBridge {' >> src/backend/rust_macro_bridge.rs
-          echo '    pub fn expand(expr: &Expr) -> String {' >> src/backend/rust_macro_bridge.rs
-          echo '        match expr {' >> src/backend/rust_macro_bridge.rs
-          echo '            Expr::Number(n) => format!("sponge_num!({})", n),' >> src/backend/rust_macro_bridge.rs
-          echo '            Expr::Ident(name) => format!("sponge_ident!(\"{}\")", name),' >> src/backend/rust_macro_bridge.rs
-          echo '            Expr::Binary { left, op, right } => {' >> src/backend/rust_macro_bridge.rs
-          echo '                let l = Self::expand(left);' >> src/backend/rust_macro_bridge.rs
-          echo '                let r = Self::expand(right);' >> src/backend/rust_macro_bridge.rs
-          echo '                format!("sponge_binop!({}, \"{}\", {})", l, op, r)' >> src/backend/rust_macro_bridge.rs
-          echo '            }' >> src/backend/rust_macro_bridge.rs
-          echo '        }' >> src/backend/rust_macro_bridge.rs
-          echo '    }' >> src/backend/rust_macro_bridge.rs
-          echo '}' >> src/backend/rust_macro_bridge.rs
+          ###############################################################
+          cat << 'EOF' > src/backend/rust_macro_bridge.rs
+use crate::ast::Expr;
 
+pub struct RustMacroBridge;
+
+impl RustMacroBridge {
+    pub fn expand(expr: &Expr) -> String {
+        match expr {
+            Expr::Number(n) => format!("sponge_num!({})", n),
+            Expr::Ident(name) => format!("sponge_ident!(\"{}\")", name),
+            Expr::Binary { left, op, right } => {
+                let l = Self::expand(left);
+                let r = Self::expand(right);
+                format!("sponge_binop!({}, \"{}\", {})", l, op, r)
+            }
+        }
+    }
+}
+EOF
+
+          ###############################################################
           # include/sponge_meta.hpp
-          echo '#pragma once' > include/sponge_meta.hpp
-          echo 'template<typename T>' >> include/sponge_meta.hpp
-          echo 'struct sponge_meta {' >> include/sponge_meta.hpp
-          echo '    static void process() {' >> include/sponge_meta.hpp
-          echo '    }' >> include/sponge_meta.hpp
-          echo '};' >> include/sponge_meta.hpp
+          ###############################################################
+          cat << 'EOF' > include/sponge_meta.hpp
+#pragma once
 
+template<typename T>
+struct sponge_meta {
+    static void process() {
+        // TODO meta operations
+    }
+};
+EOF
+
+          ###############################################################
           # include/meta_expand.hpp
-          echo '#pragma once' > include/meta_expand.hpp
-          echo 'template<typename T>' >> include/meta_expand.hpp
-          echo 'void meta_expand() {' >> include/meta_expand.hpp
-          echo '    sponge_meta<T>::process();' >> include/meta_expand.hpp
-          echo '}' >> include/meta_expand.hpp
+          ###############################################################
+          cat << 'EOF' > include/meta_expand.hpp
+#pragma once
 
-          # example
+#include "sponge_meta.hpp"
+
+template<typename T>
+void meta_expand() {
+    sponge_meta<T>::process();
+}
+EOF
+
+          ###############################################################
+          # example program
+          ###############################################################
           echo 'print(1 + 2)' > examples/hello.sp
 
-      # -----------------------------------------------------------
-      # 🔥 2. 이 아래는 기존 full pipeline (NASM + C++ Meta + Release)
-      # -----------------------------------------------------------
 
+      #####################################################################
+      # 🔥 2. NASM / Clang 설치
+      #####################################################################
       - name: Install NASM + Clang (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -198,15 +248,27 @@ jobs:
         if: runner.os == 'Windows'
         run: choco install nasm -y
 
-      - name: Cargo build — SpongeLang Compiler
+
+      #####################################################################
+      # 🔥 3. Cargo Build
+      #####################################################################
+      - name: Cargo build
         run: cargo build --release
 
-      - name: Run SpongeLang → ASM
+
+      #####################################################################
+      # 🔥 4. Run SpongeLang → ASM
+      #####################################################################
+      - name: Generate ASM
         shell: bash
         run: |
           mkdir -p build
           ./target/release/sponge-meta-lang examples/hello.sp > build/out.asm
 
+
+      #####################################################################
+      # 🔥 5. NASM → Object File
+      #####################################################################
       - name: Compile ASM with NASM
         shell: bash
         run: |
@@ -218,17 +280,30 @@ jobs:
             nasm -f elf64 build/out.asm -o build/out.o
           fi
 
-      - name: C++ Meta Compile Test (Linux/macOS)
+
+      #####################################################################
+      # 🔥 6. C++ Template MetaLayer Compile Test (Linux/macOS)
+      #####################################################################
+      - name: C++ Meta Compile Test
         if: runner.os != 'Windows'
         shell: bash
         run: |
           mkdir -p cpp_test
-          echo '#include "../include/sponge_meta.hpp"' > cpp_test/test.cpp
-          echo '#include "../include/meta_expand.hpp"' >> cpp_test/test.cpp
-          echo 'int main() { meta_expand<int>(); return 0; }' >> cpp_test/test.cpp
-          clang++ -std=c++20 cpp_test/test.cpp -o cpp_test/test
-          echo "C++ meta layer OK"
+          cat << 'EOF' > cpp_test/test.cpp
+#include "../include/sponge_meta.hpp"
+#include "../include/meta_expand.hpp"
 
+int main() {
+    meta_expand<int>();
+    return 0;
+}
+EOF
+          clang++ -std=c++20 cpp_test/test.cpp -o cpp_test/test
+
+
+      #####################################################################
+      # 🔥 7. Artifact ZIP 생성
+      #####################################################################
       - name: Create OS Artifact ZIP
         shell: bash
         run: |
@@ -244,6 +319,11 @@ jobs:
           name: ${{ runner.os }}-build
           path: ./*.zip
 
+
+
+  ###########################################################################
+  # RELEASE JOB
+  ###########################################################################
   release:
     name: "🚀 Auto Release + ProofLedger"
     runs-on: ubuntu-latest
@@ -258,10 +338,10 @@ jobs:
         with:
           path: releases
 
-      - name: Create ProofLedger + SHA256
+      - name: Create SHA256 + ProofLedger
         shell: bash
         run: |
-          echo "SpongeLang Release Pipeline" > ProofLedger.txt
+          echo "SpongeLang Release" > ProofLedger.txt
           echo "Generated: $(date -u)" >> ProofLedger.txt
           echo "" >> ProofLedger.txt
           for f in $(find releases -type f); do
@@ -276,15 +356,15 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          name: "SpongeLang Full Pipeline — ${{ github.ref_name }}"
+          name: "SpongeLang — ${{ github.ref_name }}"
           body: |
-            Full pipeline generated automatically:
-            - Auto source creation
+            Full Pipeline:
+            - Auto Compiler Source Generation
             - Rust Macro Layer
-            - C++ Template Meta Layer
-            - NASM Backend
-            - Multi-OS Build
-            - ProofLedger with SHA256
+            - C++20 Template Meta Layer
+            - NASM Backend Build
+            - Multi-OS Builds
+            - SHA256 ProofLedger Included
           files: |
             full_bundle.zip
             releases/**/*.zip
