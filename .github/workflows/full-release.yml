@@ -1,4 +1,4 @@
-name: "🔥 SpongeLang Full Build — Auto Generate + Rust Macro + C++ Meta + NASM + Release"
+name: "SpongeLang Full Build - Auto Generate + Rust Macro + C++ Meta + NASM + Release"
 
 on:
   push:
@@ -9,33 +9,27 @@ on:
 permissions:
   contents: write
 
-
 jobs:
   build:
-    name: "🏗️ Auto Generate + Compile (Rust Macro + C++ Meta + NASM)"
+    name: "Auto Generate + Compile Pipeline"
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-
+    matrix:
+      os: [ubuntu-latest, macos-latest, windows-latest]
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-
-      #####################################################################
-      # 🔥 1. SpongeLang Compiler 전체 Source 자동 생성
-      #####################################################################
-      - name: "Generate SpongeLang Compiler Files"
+      # ------------------------------------------------------------
+      # 1. Auto-generate all compiler source files
+      # ------------------------------------------------------------
+      - name: Generate compiler source files
         shell: bash
         run: |
           mkdir -p src/backend include examples
 
-          ###############################################################
-          # main.rs
-          ###############################################################
           cat << 'EOF' > src/main.rs
 mod tokenizer;
 mod ast;
@@ -54,9 +48,6 @@ fn main() {
 }
 EOF
 
-          ###############################################################
-          # tokenizer.rs
-          ###############################################################
           cat << 'EOF' > src/tokenizer.rs
 #[derive(Debug, Clone)]
 pub enum Token {
@@ -100,9 +91,6 @@ impl<'a> Tokenizer<'a> {
 }
 EOF
 
-          ###############################################################
-          # ast.rs
-          ###############################################################
           cat << 'EOF' > src/ast.rs
 #[derive(Debug)]
 pub enum Expr {
@@ -116,9 +104,6 @@ pub enum Expr {
 }
 EOF
 
-          ###############################################################
-          # parser.rs
-          ###############################################################
           cat << 'EOF' > src/parser.rs
 use crate::tokenizer::Token;
 
@@ -138,43 +123,31 @@ impl Parser {
 }
 EOF
 
-          ###############################################################
-          # semantic.rs
-          ###############################################################
           cat << 'EOF' > src/semantic.rs
 pub struct SemanticAnalyzer;
 
 impl SemanticAnalyzer {
     pub fn analyze() {
-        // TODO: type system, meaning layer
+        // TODO: type checker and meaning-based runtime
     }
 }
 EOF
 
-          ###############################################################
-          # backend/mod.rs
-          ###############################################################
           cat << 'EOF' > src/backend/mod.rs
 pub mod cpp_codegen;
 pub mod rust_macro_bridge;
 EOF
 
-          ###############################################################
-          # backend/cpp_codegen.rs
-          ###############################################################
           cat << 'EOF' > src/backend/cpp_codegen.rs
 pub struct CppCodegen;
 
 impl CppCodegen {
     pub fn emit() {
-        // TODO: AST → C++ template meta code
+        // TODO: C++ template meta-generation
     }
 }
 EOF
 
-          ###############################################################
-          # backend/rust_macro_bridge.rs
-          ###############################################################
           cat << 'EOF' > src/backend/rust_macro_bridge.rs
 use crate::ast::Expr;
 
@@ -195,50 +168,33 @@ impl RustMacroBridge {
 }
 EOF
 
-          ###############################################################
-          # include/sponge_meta.hpp
-          ###############################################################
           cat << 'EOF' > include/sponge_meta.hpp
 #pragma once
-
 template<typename T>
 struct sponge_meta {
-    static void process() {
-        // TODO meta operations
-    }
+    static void process() { }
 };
 EOF
 
-          ###############################################################
-          # include/meta_expand.hpp
-          ###############################################################
           cat << 'EOF' > include/meta_expand.hpp
 #pragma once
-
 #include "sponge_meta.hpp"
-
 template<typename T>
-void meta_expand() {
-    sponge_meta<T>::process();
-}
+void meta_expand() { sponge_meta<T>::process(); }
 EOF
 
-          ###############################################################
-          # example program
-          ###############################################################
           echo 'print(1 + 2)' > examples/hello.sp
 
-
-      #####################################################################
-      # 🔥 2. NASM / Clang 설치
-      #####################################################################
-      - name: Install NASM + Clang (Linux)
+      # ------------------------------------------------------------
+      # 2. Install NASM / Clang
+      # ------------------------------------------------------------
+      - name: Install NASM and Clang (Linux)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y nasm clang
 
-      - name: Install NASM + LLVM (macOS)
+      - name: Install NASM and LLVM (macOS)
         if: runner.os == 'macOS'
         run: |
           brew install nasm
@@ -248,28 +204,25 @@ EOF
         if: runner.os == 'Windows'
         run: choco install nasm -y
 
-
-      #####################################################################
-      # 🔥 3. Cargo Build
-      #####################################################################
+      # ------------------------------------------------------------
+      # 3. Cargo build
+      # ------------------------------------------------------------
       - name: Cargo build
         run: cargo build --release
 
-
-      #####################################################################
-      # 🔥 4. Run SpongeLang → ASM
-      #####################################################################
+      # ------------------------------------------------------------
+      # 4. Run compiler to generate ASM
+      # ------------------------------------------------------------
       - name: Generate ASM
         shell: bash
         run: |
           mkdir -p build
           ./target/release/sponge-meta-lang examples/hello.sp > build/out.asm
 
-
-      #####################################################################
-      # 🔥 5. NASM → Object File
-      #####################################################################
-      - name: Compile ASM with NASM
+      # ------------------------------------------------------------
+      # 5. Assemble ASM → object file
+      # ------------------------------------------------------------
+      - name: Build object file with NASM
         shell: bash
         run: |
           if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
@@ -280,10 +233,9 @@ EOF
             nasm -f elf64 build/out.asm -o build/out.o
           fi
 
-
-      #####################################################################
-      # 🔥 6. C++ Template MetaLayer Compile Test (Linux/macOS)
-      #####################################################################
+      # ------------------------------------------------------------
+      # 6. Test C++ template meta compile (Linux/macOS only)
+      # ------------------------------------------------------------
       - name: C++ Meta Compile Test
         if: runner.os != 'Windows'
         shell: bash
@@ -292,7 +244,6 @@ EOF
           cat << 'EOF' > cpp_test/test.cpp
 #include "../include/sponge_meta.hpp"
 #include "../include/meta_expand.hpp"
-
 int main() {
     meta_expand<int>();
     return 0;
@@ -300,11 +251,10 @@ int main() {
 EOF
           clang++ -std=c++20 cpp_test/test.cpp -o cpp_test/test
 
-
-      #####################################################################
-      # 🔥 7. Artifact ZIP 생성
-      #####################################################################
-      - name: Create OS Artifact ZIP
+      # ------------------------------------------------------------
+      # 7. Create artifacts
+      # ------------------------------------------------------------
+      - name: Create artifact ZIP
         shell: bash
         run: |
           mkdir -p artifact
@@ -313,19 +263,18 @@ EOF
           cp -r include artifact/
           zip -r ${RUNNER_OS,,}_build.zip artifact/*
 
-      - name: Upload Artifact
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ runner.os }}-build
           path: ./*.zip
 
 
-
-  ###########################################################################
+  ###############################################################
   # RELEASE JOB
-  ###########################################################################
+  ###############################################################
   release:
-    name: "🚀 Auto Release + ProofLedger"
+    name: "Release + ProofLedger"
     runs-on: ubuntu-latest
     needs: build
 
@@ -338,7 +287,7 @@ EOF
         with:
           path: releases
 
-      - name: Create SHA256 + ProofLedger
+      - name: Generate ProofLedger
         shell: bash
         run: |
           echo "SpongeLang Release" > ProofLedger.txt
@@ -348,23 +297,22 @@ EOF
             sha256sum "$f" >> ProofLedger.txt
           done
 
-      - name: Bundle everything
+      - name: Bundle all
         run: |
           zip -r full_bundle.zip releases/ ProofLedger.txt
 
-      - name: Release
+      - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          name: "SpongeLang — ${{ github.ref_name }}"
+          name: "SpongeLang Release — ${{ github.ref_name }}"
           body: |
-            Full Pipeline:
-            - Auto Compiler Source Generation
+            Full compiler pipeline generated:
             - Rust Macro Layer
-            - C++20 Template Meta Layer
-            - NASM Backend Build
+            - C++ Template Meta Layer
+            - NASM Backend
             - Multi-OS Builds
-            - SHA256 ProofLedger Included
+            - ProofLedger with SHA256
           files: |
             full_bundle.zip
             releases/**/*.zip
