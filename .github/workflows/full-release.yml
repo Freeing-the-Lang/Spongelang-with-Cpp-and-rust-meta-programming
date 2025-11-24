@@ -27,29 +27,29 @@ jobs:
 
       - name: Install NASM (Linux)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y nasm
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nasm clang
 
       - name: Install NASM (macOS)
         if: runner.os == 'macOS'
-        run: brew install nasm
+        run: |
+          brew install nasm
+          brew install llvm || true
 
       - name: Install NASM (Windows)
         if: runner.os == 'Windows'
         run: choco install nasm -y
 
-      - name: Install Clang (for C++ Template Meta Layer)
-        if: runner.os != 'Windows'
-        run: sudo apt-get update || true && sudo apt-get install -y clang || true
-
       - name: Cargo build — SpongeLang Compiler
         run: cargo build --release
 
-      - name: Run SpongeLang → ASM (Rust Macro + C++ Meta 포함)
+      - name: Run SpongeLang → ASM (Rust Macro + C++ Meta)
         shell: bash
         run: |
           mkdir -p build
           ./target/release/sponge-meta-lang examples/hello.sp > build/out.asm
-          echo "ASM output generated."
+          echo "ASM ok"
 
       - name: Compile ASM with NASM
         shell: bash
@@ -62,27 +62,24 @@ jobs:
             nasm -f elf64 build/out.asm -o build/out.o
           fi
 
-      - name: C++ Template Meta Layer Test Build
+      - name: C++ Template Meta Layer Test Build (Linux/macOS only)
+        if: runner.os != 'Windows'
+        shell: bash
         run: |
           mkdir -p cpp_meta_test
           cat << 'EOF' > cpp_meta_test/test.cpp
 #include "../include/sponge_meta.hpp"
 #include "../include/meta_expand.hpp"
-
 int main() {
-    meta_expand<int>(); // dummy compile test
+    meta_expand<int>();
     return 0;
 }
 EOF
-
-          if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
-            echo "Windows skipping Clang C++ meta test."
-          else
-            clang++ -std=c++20 cpp_meta_test/test.cpp -o cpp_meta_test/meta_test
-            echo "C++ meta template test compiled OK."
-          fi
+          clang++ -std=c++20 cpp_meta_test/test.cpp -o cpp_meta_test/meta_test
+          echo "C++ meta compile OK"
 
       - name: Create OS Artifact ZIP
+        shell: bash
         run: |
           mkdir -p artifact
           cp -r target/release artifact/
@@ -95,6 +92,7 @@ EOF
         with:
           name: ${{ runner.os }}-build
           path: ./*.zip
+
 
   release:
     name: "🚀 Auto Release + ProofLedger"
@@ -111,6 +109,7 @@ EOF
           path: releases
 
       - name: Create SHA256 + ProofLedger
+        shell: bash
         run: |
           echo "SpongeLang Complete Pipeline Release" > ProofLedger.txt
           echo "Generated: $(date -u)" >> ProofLedger.txt
@@ -118,10 +117,8 @@ EOF
           echo "" >> ProofLedger.txt
           echo "--- SHA256 Checksums ---" >> ProofLedger.txt
 
-          for f in releases/**/*; do
-            if [[ -f "$f" ]]; then
-              sha256sum "$f" >> ProofLedger.txt
-            fi
+          for f in $(find releases -type f); do
+            sha256sum "$f" >> ProofLedger.txt
           done
 
       - name: Bundle everything
@@ -132,13 +129,13 @@ EOF
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          name: "SpongeLang v${{ github.ref_name }} Full Pipeline Release"
+          name: "SpongeLang Full Pipeline — ${{ github.ref_name }}"
           body: |
             **Full Pipeline Enabled**
             - Rust Macro Layer
             - C++20 Template Meta Layer
             - NASM Backend
-            - Multi-OS builds
+            - Multi-OS Builds
             - ProofLedger + SHA256
           files: |
             full_bundle.zip
