@@ -25,13 +25,13 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install NASM (Linux)
+      - name: Install NASM + Clang (Linux)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y nasm clang
 
-      - name: Install NASM (macOS)
+      - name: Install NASM + LLVM (macOS)
         if: runner.os == 'macOS'
         run: |
           brew install nasm
@@ -49,7 +49,7 @@ jobs:
         run: |
           mkdir -p build
           ./target/release/sponge-meta-lang examples/hello.sp > build/out.asm
-          echo "ASM ok"
+          echo "ASM generated"
 
       - name: Compile ASM with NASM
         shell: bash
@@ -67,14 +67,13 @@ jobs:
         shell: bash
         run: |
           mkdir -p cpp_meta_test
-          cat << 'EOF' > cpp_meta_test/test.cpp
-#include "../include/sponge_meta.hpp"
-#include "../include/meta_expand.hpp"
-int main() {
-    meta_expand<int>();
-    return 0;
-}
-EOF
+          echo '#include "../include/sponge_meta.hpp"' > cpp_meta_test/test.cpp
+          echo '#include "../include/meta_expand.hpp"' >> cpp_meta_test/test.cpp
+          echo 'int main() {' >> cpp_meta_test/test.cpp
+          echo '    meta_expand<int>();' >> cpp_meta_test/test.cpp
+          echo '    return 0;' >> cpp_meta_test/test.cpp
+          echo '}' >> cpp_meta_test/test.cpp
+
           clang++ -std=c++20 cpp_meta_test/test.cpp -o cpp_meta_test/meta_test
           echo "C++ meta compile OK"
 
