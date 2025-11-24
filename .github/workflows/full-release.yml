@@ -1,4 +1,4 @@
-name: "SpongeLang Full Build - Auto Generate + Rust Macro + C++ Meta + NASM + Release"
+name: "SpongeLang Full Build - Auto Generate + NASM + C++ Meta + Release"
 
 on:
   push:
@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   build:
-    name: "Auto Generate + Compile Pipeline"
+    name: "Build"
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -22,14 +22,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ------------------------------------------------------------
-      # 1. Auto-generate all compiler source files
-      # ------------------------------------------------------------
-      - name: Generate compiler source files
+      - name: Generate compiler files
         shell: bash
         run: |
           mkdir -p src/backend include examples
 
+          # main.rs
           cat << 'EOF' > src/main.rs
 mod tokenizer;
 mod ast;
@@ -48,6 +46,7 @@ fn main() {
 }
 EOF
 
+          # tokenizer.rs
           cat << 'EOF' > src/tokenizer.rs
 #[derive(Debug, Clone)]
 pub enum Token {
@@ -91,6 +90,7 @@ impl<'a> Tokenizer<'a> {
 }
 EOF
 
+          # ast.rs
           cat << 'EOF' > src/ast.rs
 #[derive(Debug)]
 pub enum Expr {
@@ -104,6 +104,7 @@ pub enum Expr {
 }
 EOF
 
+          # parser.rs
           cat << 'EOF' > src/parser.rs
 use crate::tokenizer::Token;
 
@@ -123,31 +124,35 @@ impl Parser {
 }
 EOF
 
+          # semantic.rs
           cat << 'EOF' > src/semantic.rs
 pub struct SemanticAnalyzer;
 
 impl SemanticAnalyzer {
     pub fn analyze() {
-        // TODO: type checker and meaning-based runtime
+        // TODO
     }
 }
 EOF
 
+          # backend/mod.rs
           cat << 'EOF' > src/backend/mod.rs
 pub mod cpp_codegen;
 pub mod rust_macro_bridge;
 EOF
 
+          # backend/cpp_codegen.rs
           cat << 'EOF' > src/backend/cpp_codegen.rs
 pub struct CppCodegen;
 
 impl CppCodegen {
     pub fn emit() {
-        // TODO: C++ template meta-generation
+        // TODO
     }
 }
 EOF
 
+          # backend/rust_macro_bridge.rs
           cat << 'EOF' > src/backend/rust_macro_bridge.rs
 use crate::ast::Expr;
 
@@ -168,33 +173,37 @@ impl RustMacroBridge {
 }
 EOF
 
+          # include/sponge_meta.hpp
           cat << 'EOF' > include/sponge_meta.hpp
 #pragma once
+
 template<typename T>
 struct sponge_meta {
     static void process() { }
 };
 EOF
 
+          # include/meta_expand.hpp
           cat << 'EOF' > include/meta_expand.hpp
 #pragma once
 #include "sponge_meta.hpp"
+
 template<typename T>
-void meta_expand() { sponge_meta<T>::process(); }
+void meta_expand() {
+    sponge_meta<T>::process();
+}
 EOF
 
-          echo 'print(1 + 2)' > examples/hello.sp
+          echo "print(1 + 2)" > examples/hello.sp
 
-      # ------------------------------------------------------------
-      # 2. Install NASM / Clang
-      # ------------------------------------------------------------
-      - name: Install NASM and Clang (Linux)
+      # ------------ Install NASM & C++ toolchain --------------------
+      - name: Install NASM (Linux)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y nasm clang
 
-      - name: Install NASM and LLVM (macOS)
+      - name: Install NASM (macOS)
         if: runner.os == 'macOS'
         run: |
           brew install nasm
@@ -204,25 +213,19 @@ EOF
         if: runner.os == 'Windows'
         run: choco install nasm -y
 
-      # ------------------------------------------------------------
-      # 3. Cargo build
-      # ------------------------------------------------------------
-      - name: Cargo build
+      # ------------ Cargo Build --------------------
+      - name: Build Rust compiler
         run: cargo build --release
 
-      # ------------------------------------------------------------
-      # 4. Run compiler to generate ASM
-      # ------------------------------------------------------------
+      # ------------ Generate ASM --------------------
       - name: Generate ASM
         shell: bash
         run: |
           mkdir -p build
           ./target/release/sponge-meta-lang examples/hello.sp > build/out.asm
 
-      # ------------------------------------------------------------
-      # 5. Assemble ASM → object file
-      # ------------------------------------------------------------
-      - name: Build object file with NASM
+      # ------------ NASM Compile --------------------
+      - name: NASM compile
         shell: bash
         run: |
           if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
@@ -233,10 +236,8 @@ EOF
             nasm -f elf64 build/out.asm -o build/out.o
           fi
 
-      # ------------------------------------------------------------
-      # 6. Test C++ template meta compile (Linux/macOS only)
-      # ------------------------------------------------------------
-      - name: C++ Meta Compile Test
+      # ------------ C++ Meta Test --------------------
+      - name: C++ Meta Test
         if: runner.os != 'Windows'
         shell: bash
         run: |
@@ -251,10 +252,8 @@ int main() {
 EOF
           clang++ -std=c++20 cpp_test/test.cpp -o cpp_test/test
 
-      # ------------------------------------------------------------
-      # 7. Create artifacts
-      # ------------------------------------------------------------
-      - name: Create artifact ZIP
+      # ------------ Artifact -------------------------
+      - name: Package Artifact
         shell: bash
         run: |
           mkdir -p artifact
@@ -263,18 +262,15 @@ EOF
           cp -r include artifact/
           zip -r ${RUNNER_OS,,}_build.zip artifact/*
 
-      - name: Upload artifact
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ runner.os }}-build
           path: ./*.zip
 
 
-  ###############################################################
-  # RELEASE JOB
-  ###############################################################
   release:
-    name: "Release + ProofLedger"
+    name: "Release + Ledger"
     runs-on: ubuntu-latest
     needs: build
 
@@ -292,27 +288,25 @@ EOF
         run: |
           echo "SpongeLang Release" > ProofLedger.txt
           echo "Generated: $(date -u)" >> ProofLedger.txt
-          echo "" >> ProofLedger.txt
           for f in $(find releases -type f); do
             sha256sum "$f" >> ProofLedger.txt
           done
 
-      - name: Bundle all
-        run: |
-          zip -r full_bundle.zip releases/ ProofLedger.txt
+      - name: Bundle everything
+        run: zip -r full_bundle.zip releases/ ProofLedger.txt
 
-      - name: Publish GitHub Release
+      - name: Publish Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
           name: "SpongeLang Release — ${{ github.ref_name }}"
           body: |
-            Full compiler pipeline generated:
+            Auto-generated compiler pipeline:
             - Rust Macro Layer
             - C++ Template Meta Layer
-            - NASM Backend
-            - Multi-OS Builds
-            - ProofLedger with SHA256
+            - NASM backend
+            - Multi-OS Build
+            - SHA256 ProofLedger
           files: |
             full_bundle.zip
             releases/**/*.zip
