@@ -20,20 +20,20 @@ jobs:
 
     steps:
       # ------------------------------------------------------
-      # 1) Checkout Repository
+      # 1) Checkout
       # ------------------------------------------------------
       - name: Checkout
         uses: actions/checkout@v4
 
+
       # ------------------------------------------------------
-      # 2) Download SpongeLang Compiler (Latest external release)
+      # 2) Download Latest SpongeLang Compiler
       # ------------------------------------------------------
       - name: Download Latest SpongeLang Compiler
         shell: bash
         run: |
           mkdir -p tools
-
-          echo "Detected runner OS: ${{ runner.os }}"
+          echo "Runner OS: ${{ runner.os }}"
 
           if [[ "${{ runner.os }}" == "Linux" ]]; then
             FILE="sponge-meta-lang-linux"
@@ -45,108 +45,125 @@ jobs:
 
           URL="https://github.com/Freeing-the-Lang/SpongeLang/releases/latest/download/$FILE"
 
-          echo "Downloading: $URL"
-
+          echo "Downloading $URL"
           curl -L -o tools/sponge-meta-lang "$URL"
           chmod +x tools/sponge-meta-lang || true
+
 
       # ------------------------------------------------------
       # 3) Install Build Tools
       # ------------------------------------------------------
-      - name: Install tools (Linux)
+      - name: Install Tools (Linux)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y nasm clang
 
-      - name: Install tools (macOS)
+
+      - name: Install Tools (macOS)
         if: runner.os == 'macOS'
         run: |
           brew install nasm
-          brew install llvm || true
+          brew install llvm
 
-      - name: Install tools (Windows)
+
+      - name: Install Tools (Windows)
         if: runner.os == 'Windows'
         shell: powershell
         run: |
           choco install nasm -y
 
+
       # ------------------------------------------------------
-      # 4) Run SpongeLang to generate ASM
+      # 4) Run SpongeLang → ASM
       # ------------------------------------------------------
       - name: Generate ASM
         run: |
           mkdir -p build
           ./tools/sponge-meta-lang examples/hello.sp > build/out.asm
 
+
       # ------------------------------------------------------
-      # 5) NASM → 실행 파일 생성
+      # 5) NASM + Link per OS
       # ------------------------------------------------------
-      - name: NASM (Linux)
+
+      # Linux
+      - name: NASM → Binary (Linux)
         if: runner.os == 'Linux'
         run: |
           nasm -f elf64 build/out.asm -o build/out.o
           ld build/out.o -o build/a.out
 
-      - name: NASM (macOS)
+
+      # macOS (stable version)
+      - name: NASM → Binary (macOS)
         if: runner.os == 'macOS'
         run: |
           nasm -f macho64 build/out.asm -o build/out.o
-          ld -macosx_version_min 11.0 -o build/a.out build/out.o -lSystem
+          clang -o build/a.out build/out.o -lSystem
 
-      - name: NASM (Windows)
+
+      # Windows
+      - name: NASM → Binary (Windows)
         if: runner.os == 'Windows'
         shell: powershell
         run: |
           nasm -f win64 build/out.asm -o build/out.obj
-          link /entry:_start /SUBSYSTEM:CONSOLE build/out.obj /OUT:build\\a.exe
+          link build/out.obj /SUBSYSTEM:CONSOLE /OUT:build\\a.exe
+
 
       # ------------------------------------------------------
       # 6) C++ Template Meta Layer Test
       # ------------------------------------------------------
-      - name: C++ meta test (Linux/macOS)
+
+      # Linux / Mac
+      - name: C++ Meta Test (Unix)
         if: runner.os != 'Windows'
         run: |
           mkdir -p cpp_test
           cat << 'EOF' > cpp_test/test.cpp
-#include "../include/sponge_meta.hpp"
-#include "../include/meta_expand.hpp"
-int main() {
-    meta_expand<int>();
-    return 0;
-}
+#include "include/sponge_meta.hpp"
+#include "include/meta_expand.hpp"
+int main() { meta_expand<int>(); return 0; }
 EOF
           clang++ -std=c++20 cpp_test/test.cpp -o cpp_test/test
 
-      - name: C++ meta test (Windows)
+
+      # Windows
+      - name: C++ Meta Test (Windows)
         if: runner.os == 'Windows'
         shell: powershell
         run: |
           mkdir cpp_test
-          Set-Content cpp_test/test.cpp '#include "../include/sponge_meta.hpp"
-#include "../include/meta_expand.hpp"
+          Set-Content cpp_test/test.cpp '#include "include/sponge_meta.hpp"
+#include "include/meta_expand.hpp"
 int main(){ meta_expand<int>(); return 0; }'
           cl /std:c++20 cpp_test/test.cpp /EHsc
 
+
       # ------------------------------------------------------
-      # 7) Artifact Packaging
+      # 7) Artifact Packaging (OS-normalized naming)
       # ------------------------------------------------------
       - name: Package Artifact
         run: |
-          mkdir -p artifact
+          OSNAME="${{ matrix.os }}"
+          OSNAME="${OSNAME/-latest/}"
+          mkdir artifact
           cp -r build artifact/
           cp -r include artifact/
-          zip -r "${{ runner.os }}_build.zip" artifact/*
+          zip -r "${OSNAME}_build.zip" artifact/*
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ runner.os }}-build
-          path: ./*.zip
+          name: build-${{ matrix.os }}
+          path: ./*_build.zip
 
-  # ======================================================
+
+
+  # ===================================================================
   # 8) Release + ProofLedger
-  # ======================================================
+  # ===================================================================
   release:
     name: "Release + ProofLedger"
     runs-on: ubuntu-latest
@@ -161,19 +178,23 @@ int main(){ meta_expand<int>(); return 0; }'
         with:
           path: releases
 
-      - name: Generate Ledger
+
+      - name: Generate ProofLedger
         run: |
           echo "SpongeLang External Compiler Build" > ProofLedger.txt
-          echo "Generated at: $(date -u)" >> ProofLedger.txt
+          echo "Generated: $(date -u)" >> ProofLedger.txt
           echo "" >> ProofLedger.txt
 
-          for f in $(find releases -type f); do
+          # Only hash final user-downloadable ZIP files
+          find releases -name "*.zip" -type f -print0 | while IFS= read -r -d '' f; do
             sha256sum "$f" >> ProofLedger.txt
           done
 
-      - name: Bundle All
+
+      - name: Bundle Everything
         run: |
           zip -r full_bundle.zip releases/ ProofLedger.txt
+
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
@@ -182,11 +203,12 @@ int main(){ meta_expand<int>(); return 0; }'
           name: "SpongeLang External Build — ${{ github.ref_name }}"
           body: |
             External SpongeLang Compiler Build
-            - Downloaded Latest Release Binary
-            - Multi-OS NASM Backend Build
+            - Multi-OS NASM backend
+            - External SpongeLang compiler auto-download
             - C++ Meta Template Layer Test
-            - SHA256 ProofLedger Included
+            - ProofLedger + SHA256 Verification
+            - Fully reproducible build pipeline
           files: |
             full_bundle.zip
-            releases/**/*.zip
             ProofLedger.txt
+            releases/**/*.zip
