@@ -1,4 +1,4 @@
-name: "SpongeLang External Compiler Pipeline — Auto Detect Assets + PRO Release"
+name: "SpongeLang External Compiler Pipeline — Auto Detect + Latest Fallback"
 
 on:
   workflow_dispatch:
@@ -14,24 +14,52 @@ permissions:
   contents: write
 
 
+# =====================================================================
+# 1) TAG RESOLUTION (supports dispatch, tag push, and fallback)
+# =====================================================================
 jobs:
   resolve-tag:
     runs-on: ubuntu-latest
     outputs:
-      tag: ${{ steps.tag.outputs.tag }}
+      tag: ${{ steps.final.outputs.tag }}
 
     steps:
-      - name: Resolve Tag
-        id: tag
+      - name: Detect Incoming Tag
+        id: detect
         run: |
           if [[ "${{ github.event_name }}" == "repository_dispatch" ]]; then
-            echo "tag=${{ github.event.client_payload.tag }}" >> $GITHUB_OUTPUT
+            echo "raw=${{ github.event.client_payload.tag }}" >> $GITHUB_OUTPUT
           else
-            echo "tag=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+            echo "raw=${{ github.ref_name }}" >> $GITHUB_OUTPUT
           fi
 
+      - name: Fix TAG (fallback when main branch)
+        id: final
+        run: |
+          RAW="${{ steps.detect.outputs.raw }}"
+
+          if [[ "$RAW" == "main" ]]; then
+            echo "TAG='main' → Using latest SpongeLang release"
+            TAG=$(curl -s https://api.github.com/repos/Freeing-the-Lang/SpongeLang/releases/latest \
+                  | jq -r .tag_name)
+
+            if [[ "$TAG" == "null" || -z "$TAG" ]]; then
+              echo "❌ No latest release found!"
+              exit 1
+            fi
+
+            echo "tag=$TAG" >> $GITHUB_OUTPUT
+          else
+            echo "tag=$RAW" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Show final tag
+        run: echo "Final TAG = ${{ steps.final.outputs.tag }}"
 
 
+# =====================================================================
+# 2) MULTI-OS BUILD
+# =====================================================================
   build:
     needs: resolve-tag
     runs-on: ${{ matrix.os }}
@@ -43,17 +71,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-
       # ------------------------------------------------------------
-      # 🔥 Auto-detect correct asset name for this OS
+      # Auto-detect correct asset by OS
       # ------------------------------------------------------------
-      - name: Detect Correct Compiler Asset
+      - name: Detect Release Asset
         id: asset
         shell: bash
         run: |
           TAG="${{ needs.resolve-tag.outputs.tag }}"
+          echo "Fetching assets for TAG: $TAG"
 
-          echo "Fetching asset list for TAG: $TAG"
           curl -s https://api.github.com/repos/Freeing-the-Lang/SpongeLang/releases/tags/$TAG \
             -o assets.json
 
@@ -61,27 +88,25 @@ jobs:
           cat assets.json | jq -r '.assets[].name'
 
           if [[ "${{ runner.os }}" == "Linux" ]]; then
-            KEYWORD="linux"
+            KEY="linux"
           elif [[ "${{ runner.os }}" == "macOS" ]]; then
-            KEYWORD="macos"
+            KEY="macos"
           else
-            KEYWORD="windows"
+            KEY="windows"
           fi
 
-          # find first match
-          ASSET=$(cat assets.json | jq -r '.assets[].name' | grep -i "$KEYWORD" | head -n 1)
+          ASSET=$(cat assets.json | jq -r '.assets[].name' | grep -i "$KEY" | head -n 1)
 
           if [[ -z "$ASSET" ]]; then
-            echo "❌ No matching asset for OS keyword: $KEYWORD"
+            echo "❌ Cannot find asset for OS keyword: $KEY"
             exit 1
           fi
 
           echo "asset=$ASSET" >> $GITHUB_OUTPUT
           echo "Detected asset: $ASSET"
 
-
       # ------------------------------------------------------------
-      # 🔥 Download + unzip compiler safely
+      # Download + Unzip compiler safely
       # ------------------------------------------------------------
       - name: Download Compiler
         shell: bash
@@ -90,29 +115,26 @@ jobs:
           ASSET="${{ steps.asset.outputs.asset }}"
           URL="https://github.com/Freeing-the-Lang/SpongeLang/releases/download/$TAG/$ASSET"
 
+          echo "Downloading $ASSET"
           mkdir -p tools
-          echo "Downloading: $URL"
-
           curl -L -o tools/$ASSET "$URL"
 
-          # Validate size
           SIZE=$(wc -c < tools/$ASSET)
-          echo "Downloaded size: $SIZE bytes"
+          echo "Size: $SIZE bytes"
 
           if [[ "$SIZE" -lt 200 ]]; then
-            echo "❌ ERROR: File too small, probably HTML error page."
+            echo "❌ Downloaded file too small, likely HTML error:"
             cat tools/$ASSET
             exit 1
           fi
 
-          unzip tools/$ASSET -d tools || (echo "❌ Not a valid zip!"; exit 1)
-
-          echo "Tools:"
+          unzip tools/$ASSET -d tools
+          echo "Tools directory:"
           ls -R tools
 
 
       # ------------------------------------------------------------
-      # Install Tools
+      # Install tools
       # ------------------------------------------------------------
       - name: Install Tools (Linux)
         if: runner.os == 'Linux'
@@ -133,27 +155,27 @@ jobs:
 
 
       # ------------------------------------------------------------
-      # Generate ASM
+      # Generate ASM via external SpongeLang
       # ------------------------------------------------------------
       - name: Run SpongeLang → ASM
         shell: bash
         run: |
           mkdir -p build
-          BIN=$(find tools -maxdepth 1 -type f -perm -u+x ! -name "*.dll" ! -name "*.dylib" ! -name "*.zip" | head -n 1)
+
+          BIN=$(find tools -maxdepth 1 -type f -perm -u+x ! -name "*.zip" ! -name "*.dll" ! -name "*.dylib" | head -n 1)
 
           if [[ -z "$BIN" ]]; then
-            echo "❌ Could not find executable in tools/"
+            echo "❌ No executable found in tools/"
             ls -al tools
             exit 1
           fi
 
           echo "Using binary: $BIN"
-
           $BIN examples/hello.sp > build/out.asm
 
 
       # ------------------------------------------------------------
-      # NASM + LINK
+      # NASM + link
       # ------------------------------------------------------------
       - name: Build Binary (Linux)
         if: runner.os == 'Linux'
@@ -174,17 +196,18 @@ jobs:
           nasm -f win64 build/out.asm -o build/out.obj
           cl build/out.obj /link /ENTRY:_start /SUBSYSTEM:CONSOLE /OUT:build\a.exe
 
+
       # ------------------------------------------------------------
       # Package
       # ------------------------------------------------------------
       - name: Package Artifact
         run: |
-          OSNAME="${{ matrix.os }}"
-          OSNAME="${OSNAME/-latest/}"
+          OS="${{ matrix.os }}"
+          OS="${OS/-latest/}"
           mkdir artifact
           cp -r build artifact/
           cp -r include artifact/ || true
-          zip -r "${OSNAME}_build.zip" artifact/*
+          zip -r "${OS}_build.zip" artifact/*
 
       - uses: actions/upload-artifact@v4
         with:
@@ -192,7 +215,9 @@ jobs:
           path: ./*_build.zip
 
 
-
+# =====================================================================
+# 3) Release + ProofLedger
+# =====================================================================
   release:
     needs: [resolve-tag, build]
     runs-on: ubuntu-latest
@@ -206,18 +231,16 @@ jobs:
       - name: Generate ProofLedger
         run: |
           TAG="${{ needs.resolve-tag.outputs.tag }}"
-
           echo "SpongeLang External Compiler Build" > ProofLedger.txt
           echo "Version: $TAG" >> ProofLedger.txt
           echo "Generated: $(date -u)" >> ProofLedger.txt
           echo "" >> ProofLedger.txt
-
           find releases -name "*.zip" -type f -print0 |
           while IFS= read -r -d '' f; do
             sha256sum "$f" >> ProofLedger.txt
           done
 
-      - name: Bundle
+      - name: Bundle Everything
         run: zip -r full_bundle.zip releases/ ProofLedger.txt
 
       - name: Publish Release
@@ -225,11 +248,6 @@ jobs:
         with:
           tag_name: ${{ needs.resolve-tag.outputs.tag }}
           name: "SpongeLang External Build — ${{ needs.resolve-tag.outputs.tag }}"
-          body: |
-            🔥 Auto-detected compiler assets
-            🔥 Multi-OS NASM backend
-            🔥 ProofLedger (all SHA256)
-            🔥 Fully reproducible external build pipeline
           files: |
             full_bundle.zip
             ProofLedger.txt
