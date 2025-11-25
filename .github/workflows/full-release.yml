@@ -27,27 +27,41 @@ jobs:
 
 
       # ------------------------------------------------------
-      # 2) Download Latest SpongeLang Compiler
+      # 2) Download + Extract SpongeLang Compiler (ZIP Assets)
       # ------------------------------------------------------
       - name: Download Latest SpongeLang Compiler
         shell: bash
         run: |
           mkdir -p tools
-          echo "Runner OS: ${{ runner.os }}"
 
+          # Determine correct asset name
           if [[ "${{ runner.os }}" == "Linux" ]]; then
-            FILE="sponge-meta-lang-linux"
+            ZFILE="linux.zip"
+            BINARY="linux"
           elif [[ "${{ runner.os }}" == "macOS" ]]; then
-            FILE="sponge-meta-lang-macos"
+            ZFILE="macos.zip"
+            BINARY="macos"
           else
-            FILE="sponge-meta-lang-windows.exe"
+            ZFILE="windows.zip"
+            BINARY="windows.exe"
           fi
 
-          URL="https://github.com/Freeing-the-Lang/SpongeLang/releases/latest/download/$FILE"
+          URL="https://github.com/Freeing-the-Lang/SpongeLang/releases/latest/download/$ZFILE"
 
-          echo "Downloading $URL"
-          curl -L -o tools/sponge-meta-lang "$URL"
-          chmod +x tools/sponge-meta-lang || true
+          echo "Downloading: $URL"
+          curl -L -o tools/$ZFILE "$URL"
+
+          echo "Unzipping..."
+          unzip -d tools tools/$ZFILE
+
+          # Validate binary existence
+          if [[ ! -f "tools/$BINARY" ]]; then
+            echo "ERROR: Expected binary 'tools/$BINARY' not found!"
+            ls -R tools
+            exit 1
+          fi
+
+          chmod +x tools/$BINARY || true
 
 
       # ------------------------------------------------------
@@ -59,13 +73,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y nasm clang
 
-
       - name: Install Tools (macOS)
         if: runner.os == 'macOS'
         run: |
           brew install nasm
           brew install llvm
-
 
       - name: Install Tools (Windows)
         if: runner.os == 'Windows'
@@ -80,36 +92,36 @@ jobs:
       - name: Generate ASM
         run: |
           mkdir -p build
-          ./tools/sponge-meta-lang examples/hello.sp > build/out.asm
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            ./tools/windows.exe examples/hello.sp > build/out.asm
+          elif [[ "${{ runner.os }}" == "macOS" ]]; then
+            ./tools/macos examples/hello.sp > build/out.asm
+          else
+            ./tools/linux examples/hello.sp > build/out.asm
+          fi
 
 
       # ------------------------------------------------------
-      # 5) NASM + Link per OS
+      # 5) NASM + Link (OS-Specific)
       # ------------------------------------------------------
-
-      # Linux
       - name: NASM → Binary (Linux)
         if: runner.os == 'Linux'
         run: |
           nasm -f elf64 build/out.asm -o build/out.o
           ld build/out.o -o build/a.out
 
-
-      # macOS
       - name: NASM → Binary (macOS)
         if: runner.os == 'macOS'
         run: |
           nasm -f macho64 build/out.asm -o build/out.o
           clang -o build/a.out build/out.o -lSystem
 
-
-      # Windows
       - name: NASM → Binary (Windows)
         if: runner.os == 'Windows'
         shell: powershell
         run: |
           nasm -f win64 build/out.asm -o build/out.obj
-          link build/out.obj /SUBSYSTEM:CONSOLE /OUT:build\\a.exe
+          cl build/out.obj /link /ENTRY:_start /SUBSYSTEM:CONSOLE /OUT:build\\a.exe
 
 
       # ------------------------------------------------------
@@ -149,7 +161,6 @@ jobs:
         with:
           path: releases
 
-
       - name: Generate ProofLedger
         run: |
           echo "SpongeLang External Compiler Build" > ProofLedger.txt
@@ -160,11 +171,9 @@ jobs:
             sha256sum "$f" >> ProofLedger.txt
           done
 
-
       - name: Bundle Everything
         run: |
           zip -r full_bundle.zip releases/ ProofLedger.txt
-
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
@@ -174,7 +183,7 @@ jobs:
           body: |
             External SpongeLang Compiler Build
             - Multi-OS NASM backend
-            - External SpongeLang compiler auto-download
+            - External SpongeLang compiler auto-download (ZIP)
             - ProofLedger + SHA256 Verification
             - Fully reproducible build pipeline
           files: |
