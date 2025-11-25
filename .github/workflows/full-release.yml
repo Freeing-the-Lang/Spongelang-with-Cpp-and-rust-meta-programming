@@ -45,7 +45,7 @@ jobs:
           echo "tag=${{ steps.detect.outputs.tag }}" >> $GITHUB_OUTPUT
 
       - name: Show tag
-        run: echo "🔗 Using tag: ${{ steps.settag.outputs.tag }}"
+        run: echo " Using tag: ${{ steps.settag.outputs.tag }}"
 
 
 # =====================================================================
