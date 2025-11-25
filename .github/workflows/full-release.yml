@@ -27,14 +27,15 @@ jobs:
 
 
       # ------------------------------------------------------
-      # 2) Download + Extract SpongeLang Compiler (ZIP Assets)
+      # 2) Download + Extract SpongeLang Compiler (TAG-BASED)
       # ------------------------------------------------------
-      - name: Download Latest SpongeLang Compiler
+      - name: Download SpongeLang Compiler
         shell: bash
         run: |
           mkdir -p tools
 
-          # Determine correct asset name
+          TAG="${{ github.ref_name }}"
+
           if [[ "${{ runner.os }}" == "Linux" ]]; then
             ZFILE="linux.zip"
             BINARY="linux"
@@ -46,17 +47,23 @@ jobs:
             BINARY="windows.exe"
           fi
 
-          URL="https://github.com/Freeing-the-Lang/SpongeLang/releases/latest/download/$ZFILE"
+          URL="https://github.com/Freeing-the-Lang/SpongeLang/releases/download/$TAG/$ZFILE"
 
           echo "Downloading: $URL"
           curl -L -o tools/$ZFILE "$URL"
 
+          if [[ ! -s tools/$ZFILE ]]; then
+            echo "❌ ERROR: Download failed or empty file!"
+            ls -l tools
+            exit 1
+          fi
+
           echo "Unzipping..."
           unzip -d tools tools/$ZFILE
 
-          # Validate binary existence
           if [[ ! -f "tools/$BINARY" ]]; then
-            echo "ERROR: Expected binary 'tools/$BINARY' not found!"
+            echo "❌ ERROR: Expected binary 'tools/$BINARY' not found!"
+            echo "Tools directory content:"
             ls -R tools
             exit 1
           fi
@@ -87,7 +94,7 @@ jobs:
 
 
       # ------------------------------------------------------
-      # 4) Run SpongeLang → ASM
+      # 4) SpongeLang → ASM
       # ------------------------------------------------------
       - name: Generate ASM
         run: |
@@ -102,20 +109,24 @@ jobs:
 
 
       # ------------------------------------------------------
-      # 5) NASM + Link (OS-Specific)
+      # 5) NASM + Link
       # ------------------------------------------------------
+
+      # Linux
       - name: NASM → Binary (Linux)
         if: runner.os == 'Linux'
         run: |
           nasm -f elf64 build/out.asm -o build/out.o
           ld build/out.o -o build/a.out
 
+      # macOS
       - name: NASM → Binary (macOS)
         if: runner.os == 'macOS'
         run: |
           nasm -f macho64 build/out.asm -o build/out.o
           clang -o build/a.out build/out.o -lSystem
 
+      # Windows
       - name: NASM → Binary (Windows)
         if: runner.os == 'Windows'
         shell: powershell
@@ -183,7 +194,7 @@ jobs:
           body: |
             External SpongeLang Compiler Build
             - Multi-OS NASM backend
-            - External SpongeLang compiler auto-download (ZIP)
+            - Tag-based external compiler download
             - ProofLedger + SHA256 Verification
             - Fully reproducible build pipeline
           files: |
