@@ -3,13 +3,9 @@ name: "SpongeLang External Compiler Pipeline — AUTO Chain + PRO Release"
 on:
   workflow_dispatch:
 
-  # ===============================================================
-  # A) AUTO-CHAIN: Trigger when SpongeLang main repo creates a tag
-  # ===============================================================
   repository_dispatch:
     types: [spongelang-new-tag]
 
-  # Optional: if this repo ALSO wants to trigger by its own tag
   push:
     tags:
       - "v*"
@@ -18,9 +14,6 @@ permissions:
   contents: write
 
 
-# =====================================================================
-# JOB 1: Prepare Tag (Handles Both Local Tag + Repository Dispatch)
-# =====================================================================
 jobs:
   resolve-tag:
     runs-on: ubuntu-latest
@@ -32,10 +25,8 @@ jobs:
         id: detect
         run: |
           if [[ "${{ github.event_name }}" == "repository_dispatch" ]]; then
-            echo "source=dispatch" >> $GITHUB_OUTPUT
             echo "tag=${{ github.event.client_payload.tag }}" >> $GITHUB_OUTPUT
           else
-            echo "source=self" >> $GITHUB_OUTPUT
             echo "tag=${{ github.ref_name }}" >> $GITHUB_OUTPUT
           fi
 
@@ -44,13 +35,7 @@ jobs:
         run: |
           echo "tag=${{ steps.detect.outputs.tag }}" >> $GITHUB_OUTPUT
 
-      - name: Show tag
-        run: echo " Using tag: ${{ steps.settag.outputs.tag }}"
 
-
-# =====================================================================
-# JOB 2: Multi-OS Build
-# =====================================================================
   build:
     needs: resolve-tag
     runs-on: ${{ matrix.os }}
@@ -62,10 +47,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # ------------------------------------------------------------
-      # Download External Compiler
-      # ------------------------------------------------------------
-      - name: Download SpongeLang Compiler (tag-based)
+      - name: Download SpongeLang Compiler
         shell: bash
         run: |
           TAG="${{ needs.resolve-tag.outputs.tag }}"
@@ -84,21 +66,16 @@ jobs:
 
           URL="https://github.com/Freeing-the-Lang/SpongeLang/releases/download/$TAG/$ZFILE"
           echo "Downloading: $URL"
-
           curl -L -o tools/$ZFILE "$URL"
 
           if [[ ! -s tools/$ZFILE ]]; then
-            echo "❌ ERROR: Downloaded empty or missing!"
-            ls -l tools
+            echo "EMPTY ZIP ERROR"
             exit 1
           fi
 
           unzip -d tools tools/$ZFILE
           chmod +x tools/$BIN || true
 
-      # ------------------------------------------------------------
-      # Install Build Tools
-      # ------------------------------------------------------------
       - name: Install Tools (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -114,12 +91,8 @@ jobs:
       - name: Install Tools (Windows)
         if: runner.os == 'Windows'
         shell: powershell
-        run: |
-          choco install nasm -y
+        run: choco install nasm -y
 
-      # ------------------------------------------------------------
-      # SpongeLang → ASM
-      # ------------------------------------------------------------
       - name: Generate ASM
         run: |
           mkdir -p build
@@ -131,22 +104,19 @@ jobs:
             ./tools/linux examples/hello.sp > build/out.asm
           fi
 
-      # ------------------------------------------------------------
-      # NASM → LINK (with fallback)
-      # ------------------------------------------------------------
-      - name: Build Binary (Linux)
+      - name: NASM → Binary (Linux)
         if: runner.os == 'Linux'
         run: |
           nasm -f elf64 build/out.asm -o build/out.o
           ld build/out.o -o build/a.out
 
-      - name: Build Binary (macOS)
+      - name: NASM → Binary (macOS)
         if: runner.os == 'macOS'
         run: |
           nasm -f macho64 build/out.asm -o build/out.o
           clang -o build/a.out build/out.o -lSystem
 
-      - name: Build Binary (Windows)
+      - name: NASM → Binary (Windows)
         if: runner.os == 'Windows'
         shell: powershell
         run: |
@@ -154,9 +124,6 @@ jobs:
           cl build/out.obj /link /ENTRY:_start /SUBSYSTEM:CONSOLE /OUT:build\a.exe `
             || cl build/out.obj /link /ENTRY:_mainCRTStartup /SUBSYSTEM:CONSOLE /OUT:build\a.exe
 
-      # ------------------------------------------------------------
-      # Package Artifacts
-      # ------------------------------------------------------------
       - name: Package Artifact
         run: |
           OS="${{ matrix.os }}"
@@ -172,9 +139,6 @@ jobs:
           path: ./*_build.zip
 
 
-# =====================================================================
-# JOB 3: Release + Proof Ledger
-# =====================================================================
   release:
     needs: [resolve-tag, build]
     runs-on: ubuntu-latest
@@ -188,7 +152,6 @@ jobs:
       - name: Generate ProofLedger
         run: |
           TAG="${{ needs.resolve-tag.outputs.tag }}"
-
           echo "SpongeLang External Compiler Build" > ProofLedger.txt
           echo "Version: $TAG" >> ProofLedger.txt
           echo "Repository: $GITHUB_REPOSITORY" >> ProofLedger.txt
@@ -202,8 +165,7 @@ jobs:
           done
 
       - name: Bundle
-        run: |
-          zip -r full_bundle.zip releases/ ProofLedger.txt
+        run: zip -r full_bundle.zip releases/ ProofLedger.txt
 
       - name: Publish Release
         uses: softprops/action-gh-release@v2
@@ -214,8 +176,7 @@ jobs:
             External SpongeLang Compiler Build (AUTO CHAIN)
             - Triggered by SpongeLang main repo NEW TAG
             - Multi-OS NASM backend reproduction
-            - ProofLedger + Full SHA256 Verification
-            - Reproducible external compile pipeline
+            - ProofLedger + SHA256 Verification
           files: |
             full_bundle.zip
             ProofLedger.txt
