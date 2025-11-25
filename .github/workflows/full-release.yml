@@ -1,17 +1,58 @@
-name: "SpongeLang External Compiler Pipeline — Latest Release"
+name: "SpongeLang External Compiler Pipeline — AUTO Chain + PRO Release"
 
 on:
+  workflow_dispatch:
+
+  # ===============================================================
+  # A) AUTO-CHAIN: Trigger when SpongeLang main repo creates a tag
+  # ===============================================================
+  repository_dispatch:
+    types: [spongelang-new-tag]
+
+  # Optional: if this repo ALSO wants to trigger by its own tag
   push:
     tags:
       - "v*"
-  workflow_dispatch:
 
 permissions:
   contents: write
 
+
+# =====================================================================
+# JOB 1: Prepare Tag (Handles Both Local Tag + Repository Dispatch)
+# =====================================================================
 jobs:
+  resolve-tag:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.settag.outputs.tag }}
+
+    steps:
+      - name: Determine tag source
+        id: detect
+        run: |
+          if [[ "${{ github.event_name }}" == "repository_dispatch" ]]; then
+            echo "source=dispatch" >> $GITHUB_OUTPUT
+            echo "tag=${{ github.event.client_payload.tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "source=self" >> $GITHUB_OUTPUT
+            echo "tag=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Set Final Tag
+        id: settag
+        run: |
+          echo "tag=${{ steps.detect.outputs.tag }}" >> $GITHUB_OUTPUT
+
+      - name: Show tag
+        run: echo "🔗 Using tag: ${{ steps.settag.outputs.tag }}"
+
+
+# =====================================================================
+# JOB 2: Multi-OS Build
+# =====================================================================
   build:
-    name: "Multi-OS Build"
+    needs: resolve-tag
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -19,61 +60,45 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
 
     steps:
-      # ------------------------------------------------------
-      # 1) Checkout
-      # ------------------------------------------------------
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-
-      # ------------------------------------------------------
-      # 2) Download + Extract SpongeLang Compiler (TAG-BASED)
-      # ------------------------------------------------------
-      - name: Download SpongeLang Compiler
+      # ------------------------------------------------------------
+      # Download External Compiler
+      # ------------------------------------------------------------
+      - name: Download SpongeLang Compiler (tag-based)
         shell: bash
         run: |
+          TAG="${{ needs.resolve-tag.outputs.tag }}"
           mkdir -p tools
-
-          TAG="${{ github.ref_name }}"
 
           if [[ "${{ runner.os }}" == "Linux" ]]; then
             ZFILE="linux.zip"
-            BINARY="linux"
+            BIN="linux"
           elif [[ "${{ runner.os }}" == "macOS" ]]; then
             ZFILE="macos.zip"
-            BINARY="macos"
+            BIN="macos"
           else
             ZFILE="windows.zip"
-            BINARY="windows.exe"
+            BIN="windows.exe"
           fi
 
           URL="https://github.com/Freeing-the-Lang/SpongeLang/releases/download/$TAG/$ZFILE"
-
           echo "Downloading: $URL"
+
           curl -L -o tools/$ZFILE "$URL"
 
           if [[ ! -s tools/$ZFILE ]]; then
-            echo "❌ ERROR: Download failed or empty file!"
+            echo "❌ ERROR: Downloaded empty or missing!"
             ls -l tools
             exit 1
           fi
 
-          echo "Unzipping..."
           unzip -d tools tools/$ZFILE
+          chmod +x tools/$BIN || true
 
-          if [[ ! -f "tools/$BINARY" ]]; then
-            echo "❌ ERROR: Expected binary 'tools/$BINARY' not found!"
-            echo "Tools directory content:"
-            ls -R tools
-            exit 1
-          fi
-
-          chmod +x tools/$BINARY || true
-
-
-      # ------------------------------------------------------
-      # 3) Install Build Tools
-      # ------------------------------------------------------
+      # ------------------------------------------------------------
+      # Install Build Tools
+      # ------------------------------------------------------------
       - name: Install Tools (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -92,10 +117,9 @@ jobs:
         run: |
           choco install nasm -y
 
-
-      # ------------------------------------------------------
-      # 4) SpongeLang → ASM
-      # ------------------------------------------------------
+      # ------------------------------------------------------------
+      # SpongeLang → ASM
+      # ------------------------------------------------------------
       - name: Generate ASM
         run: |
           mkdir -p build
@@ -107,96 +131,91 @@ jobs:
             ./tools/linux examples/hello.sp > build/out.asm
           fi
 
-
-      # ------------------------------------------------------
-      # 5) NASM + Link
-      # ------------------------------------------------------
-
-      # Linux
-      - name: NASM → Binary (Linux)
+      # ------------------------------------------------------------
+      # NASM → LINK (with fallback)
+      # ------------------------------------------------------------
+      - name: Build Binary (Linux)
         if: runner.os == 'Linux'
         run: |
           nasm -f elf64 build/out.asm -o build/out.o
           ld build/out.o -o build/a.out
 
-      # macOS
-      - name: NASM → Binary (macOS)
+      - name: Build Binary (macOS)
         if: runner.os == 'macOS'
         run: |
           nasm -f macho64 build/out.asm -o build/out.o
           clang -o build/a.out build/out.o -lSystem
 
-      # Windows
-      - name: NASM → Binary (Windows)
+      - name: Build Binary (Windows)
         if: runner.os == 'Windows'
         shell: powershell
         run: |
           nasm -f win64 build/out.asm -o build/out.obj
-          cl build/out.obj /link /ENTRY:_start /SUBSYSTEM:CONSOLE /OUT:build\\a.exe
+          cl build/out.obj /link /ENTRY:_start /SUBSYSTEM:CONSOLE /OUT:build\a.exe `
+            || cl build/out.obj /link /ENTRY:_mainCRTStartup /SUBSYSTEM:CONSOLE /OUT:build\a.exe
 
-
-      # ------------------------------------------------------
-      # 6) Artifact Packaging
-      # ------------------------------------------------------
+      # ------------------------------------------------------------
+      # Package Artifacts
+      # ------------------------------------------------------------
       - name: Package Artifact
         run: |
-          OSNAME="${{ matrix.os }}"
-          OSNAME="${OSNAME/-latest/}"
+          OS="${{ matrix.os }}"
+          OS="${OS/-latest/}"
           mkdir artifact
           cp -r build artifact/
-          cp -r include artifact/
-          zip -r "${OSNAME}_build.zip" artifact/*
+          cp -r include artifact/ || true
+          zip -r "${OS}_build.zip" artifact/*
 
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: build-${{ matrix.os }}
+          name: ${{ matrix.os }}
           path: ./*_build.zip
 
 
-
-  # ===================================================================
-  # 7) Release + ProofLedger
-  # ===================================================================
+# =====================================================================
+# JOB 3: Release + Proof Ledger
+# =====================================================================
   release:
-    name: "Release + ProofLedger"
+    needs: [resolve-tag, build]
     runs-on: ubuntu-latest
-    needs: build
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Download Artifacts
-        uses: actions/download-artifact@v4
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
         with:
           path: releases
 
       - name: Generate ProofLedger
         run: |
+          TAG="${{ needs.resolve-tag.outputs.tag }}"
+
           echo "SpongeLang External Compiler Build" > ProofLedger.txt
+          echo "Version: $TAG" >> ProofLedger.txt
+          echo "Repository: $GITHUB_REPOSITORY" >> ProofLedger.txt
+          echo "Commit: $GITHUB_SHA" >> ProofLedger.txt
           echo "Generated: $(date -u)" >> ProofLedger.txt
           echo "" >> ProofLedger.txt
 
-          find releases -name "*.zip" -type f -print0 | while IFS= read -r -d '' f; do
+          find releases -name "*.zip" -type f -print0 |
+          while IFS= read -r -d '' f; do
             sha256sum "$f" >> ProofLedger.txt
           done
 
-      - name: Bundle Everything
+      - name: Bundle
         run: |
           zip -r full_bundle.zip releases/ ProofLedger.txt
 
-      - name: Publish GitHub Release
+      - name: Publish Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
-          name: "SpongeLang External Build — ${{ github.ref_name }}"
+          tag_name: ${{ needs.resolve-tag.outputs.tag }}
+          name: "SpongeLang External Build — ${{ needs.resolve-tag.outputs.tag }}"
           body: |
-            External SpongeLang Compiler Build
-            - Multi-OS NASM backend
-            - Tag-based external compiler download
-            - ProofLedger + SHA256 Verification
-            - Fully reproducible build pipeline
+            External SpongeLang Compiler Build (AUTO CHAIN)
+            - Triggered by SpongeLang main repo NEW TAG
+            - Multi-OS NASM backend reproduction
+            - ProofLedger + Full SHA256 Verification
+            - Reproducible external compile pipeline
           files: |
             full_bundle.zip
             ProofLedger.txt
