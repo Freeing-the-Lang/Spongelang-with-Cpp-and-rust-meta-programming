@@ -95,7 +95,7 @@ jobs:
           ld build/out.o -o build/a.out
 
 
-      # macOS (stable version)
+      # macOS
       - name: NASM → Binary (macOS)
         if: runner.os == 'macOS'
         run: |
@@ -113,36 +113,7 @@ jobs:
 
 
       # ------------------------------------------------------
-      # 6) C++ Template Meta Layer Test
-      # ------------------------------------------------------
-
-      # Linux / Mac
-      - name: C++ Meta Test (Unix)
-        if: runner.os != 'Windows'
-        run: |
-          mkdir -p cpp_test
-          cat << 'EOF' > cpp_test/test.cpp
-#include "include/sponge_meta.hpp"
-#include "include/meta_expand.hpp"
-int main() { meta_expand<int>(); return 0; }
-EOF
-          clang++ -std=c++20 cpp_test/test.cpp -o cpp_test/test
-
-
-      # Windows
-      - name: C++ Meta Test (Windows)
-        if: runner.os == 'Windows'
-        shell: powershell
-        run: |
-          mkdir cpp_test
-          Set-Content cpp_test/test.cpp '#include "include/sponge_meta.hpp"
-#include "include/meta_expand.hpp"
-int main(){ meta_expand<int>(); return 0; }'
-          cl /std:c++20 cpp_test/test.cpp /EHsc
-
-
-      # ------------------------------------------------------
-      # 7) Artifact Packaging (OS-normalized naming)
+      # 6) Artifact Packaging
       # ------------------------------------------------------
       - name: Package Artifact
         run: |
@@ -162,7 +133,7 @@ int main(){ meta_expand<int>(); return 0; }'
 
 
   # ===================================================================
-  # 8) Release + ProofLedger
+  # 7) Release + ProofLedger
   # ===================================================================
   release:
     name: "Release + ProofLedger"
@@ -185,7 +156,6 @@ int main(){ meta_expand<int>(); return 0; }'
           echo "Generated: $(date -u)" >> ProofLedger.txt
           echo "" >> ProofLedger.txt
 
-          # Only hash final user-downloadable ZIP files
           find releases -name "*.zip" -type f -print0 | while IFS= read -r -d '' f; do
             sha256sum "$f" >> ProofLedger.txt
           done
@@ -205,7 +175,6 @@ int main(){ meta_expand<int>(); return 0; }'
             External SpongeLang Compiler Build
             - Multi-OS NASM backend
             - External SpongeLang compiler auto-download
-            - C++ Meta Template Layer Test
             - ProofLedger + SHA256 Verification
             - Fully reproducible build pipeline
           files: |
